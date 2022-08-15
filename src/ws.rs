@@ -1,5 +1,5 @@
-use crate::lobby::Lobby;
 use crate::messages::{Connect, Disconnect, Packet, WsMessage};
+use crate::server::Server;
 use actix::ActorFutureExt;
 use actix::{fut, ActorContext, ContextFutureSpawner, WrapFuture};
 use actix::{Actor, Addr, Running, StreamHandler};
@@ -13,19 +13,17 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub struct WsConn {
-    room: Uuid,
-    lobby_addr: Addr<Lobby>,
+    server: Addr<Server>,
     hb: Instant,
     id: Uuid,
 }
 
 impl WsConn {
-    pub fn new(room: Uuid, lobby: Addr<Lobby>) -> WsConn {
+    pub fn new(server: Addr<Server>) -> WsConn {
         WsConn {
             id: Uuid::new_v4(),
-            room,
             hb: Instant::now(),
-            lobby_addr: lobby,
+            server,
         }
     }
 }
@@ -37,11 +35,10 @@ impl Actor for WsConn {
         self.hb(ctx);
 
         let addr = ctx.address();
-        self.lobby_addr
+        self.server
             .send(Connect {
                 addr: addr.recipient(),
-                lobby_id: self.room,
-                self_id: self.id,
+                id: self.id,
             })
             .into_actor(self)
             .then(|res, _, ctx| {
@@ -55,10 +52,7 @@ impl Actor for WsConn {
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
-        self.lobby_addr.do_send(Disconnect {
-            id: self.id,
-            room_id: self.room,
-        });
+        self.server.do_send(Disconnect { id: self.id });
         Running::Stop
     }
 }
@@ -69,10 +63,7 @@ impl WsConn {
             if Instant::now().duration_since(act.hb) > CLIENT_TIMEOUT {
                 println!("Disconnecting due to failed heartbeat");
 
-                act.lobby_addr.do_send(Disconnect {
-                    id: act.id,
-                    room_id: act.room,
-                });
+                act.server.do_send(Disconnect { id: act.id });
                 ctx.stop();
                 return;
             }
@@ -104,7 +95,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsConn {
                 ctx.stop();
             }
             Ok(ws::Message::Nop) => (),
-            Ok(Text(s)) => self.lobby_addr.do_send(Packet::new(self.id, &s, self.room)),
+            Ok(Text(s)) => self.server.do_send(Packet::new(self.id, &s)),
             Err(e) => panic!("{}", e),
         }
     }

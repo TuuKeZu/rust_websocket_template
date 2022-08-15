@@ -1,4 +1,4 @@
-use crate::lobby::Lobby;
+use crate::server::Server;
 use crate::ws::WsConn;
 use actix::Addr;
 use actix_web::{get, web::Data, web::Path, web::Payload, Error, HttpRequest, HttpResponse};
@@ -10,10 +10,9 @@ pub async fn start_connection(
     req: HttpRequest,
     stream: Payload,
     path: Path<Uuid>,
-    srv: Data<Addr<Lobby>>,
+    srv: Data<Addr<Server>>,
 ) -> Result<HttpResponse, Error> {
-    let group_id = path.into_inner();
-    let ws = WsConn::new(group_id, srv.get_ref().clone());
+    let ws = WsConn::new(srv.get_ref().clone());
 
     let resp = ws::start(ws, &req, stream)?;
     Ok(resp)
