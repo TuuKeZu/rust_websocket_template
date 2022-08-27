@@ -1,6 +1,7 @@
 use crate::messages::{Connect, Disconnect, Packet, WsMessage};
 use crate::packets::*;
 use actix::prelude::{Actor, Context, Handler, Recipient};
+use serde::{Deserialize, Serialize};
 use serde_json::Result;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -10,6 +11,7 @@ type Socket = Recipient<WsMessage>;
 #[derive(Debug, Default)]
 pub struct Server {
     connections: HashMap<Uuid, User>,
+    board: Board,
 }
 
 impl Server {
@@ -30,6 +32,64 @@ impl Server {
 
 impl Actor for Server {
     type Context = Context<Self>;
+}
+
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, Default)]
+pub struct Board {
+    rows: [[Square; 3]; 3],
+    active: bool,
+}
+
+impl Board {
+    fn start(&mut self) {
+        self.active = true;
+        self.next_turn();
+    }
+
+    fn next_turn(&self) {}
+
+    fn get_current_turn(&self) -> Turn {
+        if self.get_empty_squares() % 2 == 0 {
+            Turn::O
+        } else {
+            Turn::X
+        }
+    }
+
+    fn get_square(&self, row: usize, column: usize) -> Square {
+        self.rows[row][column]
+    }
+
+    fn get_empty_squares(&self) -> usize {
+        self.rows
+            .iter()
+            .flatten()
+            .filter(|square| square == &&Square::Empty)
+            .count()
+    }
+
+    fn set_square(&mut self, row: usize, column: usize, square: Square) {
+        self.rows[row][column] = square;
+    }
+}
+
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub enum Square {
+    Empty,
+    X,
+    O,
+}
+
+impl Default for Square {
+    fn default() -> Square {
+        Square::Empty
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub enum Turn {
+    X,
+    O,
 }
 
 #[derive(Debug)]
@@ -68,17 +128,35 @@ impl Handler<Connect> for Server {
         self.connections
             .insert(packet.id, User::new(packet.id, &packet.addr));
 
+        if self.board.active {
+            self.emit(
+                &to_json(PacketType::Error(
+                    401,
+                    "Game has already started".to_string(),
+                )),
+                &packet.id,
+            );
+
+            self.connections.remove(&packet.id);
+            return;
+        }
+
+        if self.connections.len() >= 2 {
+            self.board.start();
+
+            self.broadcast(&to_json(PacketType::TurnUpdate(
+                self.board.get_current_turn(),
+            )));
+        }
+
         self.emit(
-            &to_json(PacketType::Message(format!(
-                "You have joined a room with an id of '{}'",
-                packet.id
-            ))),
+            &to_json(PacketType::RoleUpdate(if self.connections.len() == 1 {
+                Turn::X
+            } else {
+                Turn::O
+            })),
             &packet.id,
         );
-
-        self.broadcast(&to_json(PacketType::Message(
-            "User has joined the room".to_string(),
-        )))
     }
 }
 
@@ -86,17 +164,27 @@ impl Handler<Packet> for Server {
     type Result = ();
 
     fn handle(&mut self, packet: Packet, _ctx: &mut Context<Self>) -> Self::Result {
-        println!("{:#?}", packet);
-
         if let Some(_player) = self.connections.get(&packet.id) {
             let json: Result<PacketType> = serde_json::from_str(&packet.data);
+            println!("{:#?}", json);
 
             if let Ok(data) = json {
                 match data {
                     PacketType::Message(content) => {
                         self.broadcast(&to_json(PacketType::Message(content)));
                     }
-                    PacketType::Error(_, _) => {} // Shouldn't be received from clients
+                    PacketType::GetBoard(_) => {
+                        self.emit(&to_json(PacketType::BoardUpdate(self.board)), &packet.id)
+                    }
+                    PacketType::SetSquare(row, column) => {
+                        self.board.set_square(row, column, Square::O);
+
+                        self.emit(&to_json(PacketType::BoardUpdate(self.board)), &packet.id)
+                    }
+                    PacketType::BoardUpdate(_) => {} // Will never be recieved by server
+                    PacketType::Error(_, _) => {}    // Will never be recieved by server
+                    PacketType::TurnUpdate(_) => {}  // Will never be recieved by server
+                    PacketType::RoleUpdate(_) => {}  // Will never be recieved by server
                 }
             } else {
                 self.emit(
