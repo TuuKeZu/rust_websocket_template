@@ -43,10 +43,7 @@ pub struct Board {
 impl Board {
     fn start(&mut self) {
         self.active = true;
-        self.next_turn();
     }
-
-    fn next_turn(&self) {}
 
     fn get_current_turn(&self) -> Turn {
         if self.get_empty_squares() % 2 == 0 {
@@ -54,10 +51,6 @@ impl Board {
         } else {
             Turn::X
         }
-    }
-
-    fn get_square(&self, row: usize, column: usize) -> Square {
-        self.rows[row][column]
     }
 
     fn get_empty_squares(&self) -> usize {
@@ -68,8 +61,12 @@ impl Board {
             .count()
     }
 
+    fn get_square(&self, row: usize, column: usize) -> Square {
+        self.rows[row][column]
+    }
+
     fn set_square(&mut self, row: usize, column: usize, square: Square) {
-        self.rows[row][column] = square;
+        self.rows[row][column] = square
     }
 }
 
@@ -147,6 +144,8 @@ impl Handler<Connect> for Server {
             self.broadcast(&to_json(PacketType::TurnUpdate(
                 self.board.get_current_turn(),
             )));
+
+            self.broadcast(&to_json(PacketType::BoardUpdate(self.board)));
         }
 
         self.emit(
@@ -176,10 +175,13 @@ impl Handler<Packet> for Server {
                     PacketType::GetBoard(_) => {
                         self.emit(&to_json(PacketType::BoardUpdate(self.board)), &packet.id)
                     }
-                    PacketType::SetSquare(row, column) => {
-                        self.board.set_square(row, column, Square::O);
+                    PacketType::SetSquare(row, column, Square) => {
+                        self.board.set_square(row, column, Square);
 
-                        self.emit(&to_json(PacketType::BoardUpdate(self.board)), &packet.id)
+                        self.broadcast(&to_json(PacketType::BoardUpdate(self.board)));
+                        self.broadcast(&to_json(PacketType::TurnUpdate(
+                            self.board.get_current_turn(),
+                        )));
                     }
                     PacketType::BoardUpdate(_) => {} // Will never be recieved by server
                     PacketType::Error(_, _) => {}    // Will never be recieved by server

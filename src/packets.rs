@@ -1,4 +1,4 @@
-use crate::server::{Board, Turn};
+use crate::server::{Board, Square, Turn};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, strum_macros::Display)]
@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 pub enum PacketType {
     Message(String),
     GetBoard(String),
-    SetSquare(usize, usize),
+    SetSquare(usize, usize, Square),
     BoardUpdate(Board),
     TurnUpdate(Turn),
     RoleUpdate(Turn),
