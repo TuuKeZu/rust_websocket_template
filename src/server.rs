@@ -198,6 +198,59 @@ impl Handler<Packet> for Server {
     }
 }
 
+// TODO move to game.rs file
+// TODO add documentation
+fn winner(rows: [[Square; 3]; 3], square: Square) -> bool {
+    let flat = rows.iter().flatten().copied().collect::<Box<[Square]>>();
+
+    // TODO move the evaluation 'g.any(|s| s >= 3)' inside the '.map()'
+
+    let mut g = flat
+        .chunks(3)
+        .map(|row| return row.iter().filter(|s| s == &&square).count());
+
+    if g.any(|s| s >= 3) {
+        return true;
+    }
+
+    for i in 0..3 {
+        if flat
+            .chunks(3)
+            .map(|s| s[i])
+            .collect::<Box<[Square]>>()
+            .iter()
+            .filter(|s| s == &&square)
+            .count()
+            >= 3
+        {
+            println!("Winner is X!");
+            return true;
+        }
+    }
+
+    let mut a = 0;
+    let mut b = 0;
+
+    for e in (0..3).rev() {
+        if flat.chunks(3).nth(e).unwrap()[e] == square {
+            a += 1;
+        }
+    }
+
+    for e in 0..3 {
+        if flat.chunks(3).nth(e).unwrap()[e] == square {
+            b += 1;
+        }
+    }
+
+    if a >= 3 || b >= 3 {
+        println!("Winner is X!");
+        return true;
+    }
+
+    false
+}
+
 pub fn to_json(data: PacketType) -> String {
     serde_json::to_string(&data).unwrap()
 }
